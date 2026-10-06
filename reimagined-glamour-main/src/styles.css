@@ -245,6 +245,17 @@
 @utility intro-fade-out {
   animation: fade-out-soft 500ms ease 2500ms both;
 }
+/* once the gates have opened (3.4s), take the intro layer out of the way with CSS alone, so
+   the page can still be tapped even if the JavaScript that removes it never runs */
+@keyframes intro-done {
+  to {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+@utility intro-done {
+  animation: intro-done 1ms linear 3400ms both;
+}
 @utility float-slow {
   animation: float-slow 7s ease-in-out infinite;
 }
