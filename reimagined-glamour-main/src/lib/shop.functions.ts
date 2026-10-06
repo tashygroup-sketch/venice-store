@@ -187,9 +187,14 @@ export type OrderRow = {
   created_at: string;
 };
 
+// The storefront's read-only client. Prefers Cloudflare's runtime variables, but falls back to
+// the public URL and key baked in at build time (from .env), so the shop still loads if the
+// runtime variables are missing — e.g. plain-text ones wiped by a later deploy.
 function publicClient() {
-  const key = process.env["SUPABASE_PUBLISHABLE_KEY"]!;
-  return createClient(process.env["SUPABASE_URL"]!, key, {
+  const key =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] || import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
+  const url = process.env["SUPABASE_URL"] || import.meta.env["VITE_SUPABASE_URL"];
+  return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
       fetch: (input, init) => {
