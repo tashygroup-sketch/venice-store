@@ -19,7 +19,7 @@ export function LogoIntro() {
   if (gone) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div className="intro-done fixed inset-0 z-50 overflow-hidden">
       {/* two frosted-glass panels over the real page, swinging open to reveal it in focus */}
       <div className="intro-gate-left absolute inset-y-0 left-0 w-1/2 overflow-hidden backdrop-blur-2xl">
         <div
