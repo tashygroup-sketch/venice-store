@@ -2,14 +2,14 @@
 const LINKS = [
   {
     label: "Facebook",
-    href: "",
+    href: "https://www.facebook.com/jecobellsony",
     icon: (
       <path d="M14 8.5h2.5V5H14c-2.2 0-4 1.8-4 4v2H7.5v3.5H10V21h3.5v-6.5H16l.5-3.5h-3V9.5c0-.6.4-1 1-1Z" />
     ),
   },
   {
     label: "Instagram",
-    href: "",
+    href: "https://www.instagram.com/venicestor_e",
     icon: (
       <>
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" />
@@ -20,9 +20,19 @@ const LINKS = [
   },
   {
     label: "Snapchat",
-    href: "",
+    href: "https://www.snapchat.com/add/venice_store",
     icon: (
       <path d="M12 3c-3.1 0-5.2 2.3-5.2 5.3v2.3c-.6 0-1.3-.2-1.7.2-.4.5.3 1 1 1.3.4.2.6.5.4.9-.6 1.4-1.7 2.6-3.1 3.1-.4.2-.3.7.1.9.7.3 1.5.4 1.8.8.2.3 0 .9.5 1.1.6.2 1.3-.1 2.2.1 1.1.3 2 1.6 4 1.6s2.9-1.3 4-1.6c.9-.2 1.6.1 2.2-.1.5-.2.3-.8.5-1.1.3-.4 1.1-.5 1.8-.8.4-.2.5-.7.1-.9-1.4-.5-2.5-1.7-3.1-3.1-.2-.4 0-.7.4-.9.7-.3 1.4-.8 1-1.3-.4-.4-1.1-.2-1.7-.2V8.3C17.2 5.3 15.1 3 12 3Z" />
+    ),
+  },
+  {
+    label: "TikTok",
+    href: "https://www.tiktok.com/@venice_store2",
+    icon: (
+      <>
+        <path d="M14 4v10.2a3.7 3.7 0 1 1-3.7-3.7" />
+        <path d="M14 4c.3 2.3 1.9 3.9 4.2 4.1" />
+      </>
     ),
   },
 ];
