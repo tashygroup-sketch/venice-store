@@ -69,6 +69,24 @@ export const Route = createFileRoute("/")({
 });
 
 // Arabic number agreement: 1 منتج واحد، 2 منتجان، 3–10 منتجات، 11+ منتج
+// Shows the first photo that actually loads: tries the main photo, then the extra photos,
+// then the shade photos. If one link is broken it quietly moves on to the next.
+function CardImage({ urls, className }: { urls: string[]; className?: string }) {
+  const [i, setI] = useState(0);
+  const url = urls[i];
+  if (!url) return null;
+  return (
+    <img
+      key={url}
+      src={url}
+      alt=""
+      decoding="async"
+      onError={() => setI((n) => n + 1)}
+      className={className}
+    />
+  );
+}
+
 function arCount(n: number, [one, two, few, many]: [string, string, string, string]) {
   if (n === 1) return one;
   if (n === 2) return two;
@@ -291,6 +309,11 @@ function Home() {
         {items.map((item) => {
           const soldOut = item.stock === 0;
           const firstVariable = item.variables[0];
+          const cardImages = [
+            item.image_url,
+            ...item.extra_images,
+            ...item.variables.flatMap((v) => v.values.map((x) => x.image_url)),
+          ].filter((u): u is string => typeof u === "string" && u.trim() !== "");
           return (
             <li key={item.id} className={soldOut ? "opacity-60" : ""}>
               <div className="relative">
@@ -300,14 +323,11 @@ function Home() {
                   aria-label={item.name}
                   className="block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-muted"
                 >
-                  {item.image_url && (
-                    <img
-                      src={item.image_url}
-                      alt=""
-                      loading="lazy"
-                      className={`h-full w-full object-cover ${soldOut ? "grayscale" : ""}`}
-                    />
-                  )}
+                  <CardImage
+                    key={item.id}
+                    urls={cardImages}
+                    className={`h-full w-full object-cover ${soldOut ? "grayscale" : ""}`}
+                  />
                 </button>
                 <div className="pointer-events-none absolute top-2 right-2 flex flex-col items-start gap-1">
                   {soldOut && (
