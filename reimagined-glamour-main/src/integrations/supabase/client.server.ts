@@ -30,8 +30,10 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 function createSupabaseAdminClient() {
-  const SUPABASE_URL = process.env['SUPABASE_URL'];
-  const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
+  // Strip quotes/spaces/line breaks pasted along with the values in Cloudflare.
+  const clean = (v: string | undefined) => v?.trim().replace(/^["']|["']$/g, '').trim() || undefined;
+  const SUPABASE_URL = clean(process.env['SUPABASE_URL']) ?? clean(import.meta.env['VITE_SUPABASE_URL']);
+  const SUPABASE_SERVICE_ROLE_KEY = clean(process.env['SUPABASE_SERVICE_ROLE_KEY']);
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     const missing = [
