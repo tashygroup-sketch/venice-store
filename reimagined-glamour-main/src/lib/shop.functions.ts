@@ -187,13 +187,25 @@ export type OrderRow = {
   created_at: string;
 };
 
-// The storefront's read-only client. Prefers Cloudflare's runtime variables, but falls back to
-// the public URL and key baked in at build time (from .env), so the shop still loads if the
-// runtime variables are missing — e.g. plain-text ones wiped by a later deploy.
+// A value pasted into Cloudflare can carry quotes copied from .env, spaces or a line break;
+// any of these makes Supabase answer "Invalid API key". Strip them.
+function cleanEnv(value: string | undefined): string | undefined {
+  const v = value
+    ?.trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  return v || undefined;
+}
+
+// The storefront's read-only client. Uses the public URL and key baked in at build time from
+// .env first (they ship to every browser anyway), and Cloudflare's runtime values only as a
+// fallback, so a mistyped or wiped Cloudflare variable can't take the shop down.
 function publicClient() {
   const key =
-    process.env["SUPABASE_PUBLISHABLE_KEY"] || import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
-  const url = process.env["SUPABASE_URL"] || import.meta.env["VITE_SUPABASE_URL"];
+    cleanEnv(import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"]) ??
+    cleanEnv(process.env["SUPABASE_PUBLISHABLE_KEY"])!;
+  const url =
+    cleanEnv(import.meta.env["VITE_SUPABASE_URL"]) ?? cleanEnv(process.env["SUPABASE_URL"])!;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
