@@ -3,6 +3,7 @@ import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, Plus, Search, ShoppingBag, X } from "lucide-react";
 import {
+  coverImage,
   effectivePrice,
   getCategories,
   getMenu,
@@ -11,11 +12,16 @@ import {
 } from "@/lib/shop.functions";
 import { LogoIntro } from "@/components/LogoIntro";
 import { Carousel } from "@/components/Carousel";
+import { Photo, PhotoGroup } from "@/components/Photo";
+import { LetterPicker } from "@/components/LetterPicker";
 import { BookingDialog } from "@/components/BookingDialog";
 import { ProductSheet, formatPrice, type AppliedDiscount } from "@/components/ProductSheet";
 import { SocialLinks } from "@/components/SocialLinks";
 import { optionsLabel, useCart, type CartOption } from "@/lib/cart";
 import { buildSearchIndex, searchProducts } from "@/lib/search";
+import { letterOf, sortByName } from "@/lib/sort";
+import { preloadAll, thumbUrl } from "@/lib/photos";
+import { arCount } from "@/lib/utils";
 import { keepLayer, useCloseLayer, useLockScroll, withLayer } from "@/lib/back-layer";
 import { overStockValue, remainingForChoice } from "@/lib/stock";
 import { WHATSAPP_NUMBER } from "@/lib/whatsapp";
@@ -68,36 +74,17 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
-// Arabic number agreement: 1 منتج واحد، 2 منتجان، 3–10 منتجات، 11+ منتج
-// Shows the first photo that actually loads: tries the main photo, then the extra photos,
-// then the shade photos. If one link is broken it quietly moves on to the next.
-function CardImage({ urls, className }: { urls: string[]; className?: string }) {
-  const [i, setI] = useState(0);
-  const url = urls[i];
-  if (!url) return null;
-  return (
-    <img
-      key={url}
-      src={url}
-      alt=""
-      decoding="async"
-      onError={() => setI((n) => n + 1)}
-      className={className}
-    />
-  );
-}
-
-function arCount(n: number, [one, two, few, many]: [string, string, string, string]) {
-  if (n === 1) return one;
-  if (n === 2) return two;
-  if (n >= 3 && n <= 10) return `${n} ${few}`;
-  return `${n} ${many}`;
-}
-
 function Home() {
-  const { data: menu } = useSuspenseQuery(menuQuery);
-  const { data: story } = useSuspenseQuery(storyQuery);
-  const { data: categoryInfo } = useSuspenseQuery(categoriesQuery);
+  // The page arrives with its data already loaded (see `loader` above). Handing that data to
+  // the queries lets the page start working at once; before, the browser downloaded all three
+  // lists a second time first, and nothing on the page responded until that finished.
+  const [menuFromPage, storyFromPage, categoriesFromPage] = Route.useLoaderData();
+  const { data: menu } = useSuspenseQuery({ ...menuQuery, initialData: menuFromPage });
+  const { data: story } = useSuspenseQuery({ ...storyQuery, initialData: storyFromPage });
+  const { data: categoryInfo } = useSuspenseQuery({
+    ...categoriesQuery,
+    initialData: categoriesFromPage,
+  });
   const { cat, p, panel } = Route.useSearch();
   const navigate = useNavigate();
   const closeLayer = useCloseLayer();
@@ -109,6 +96,8 @@ function Home() {
   const [limitHit, setLimitHit] = useState<string | null>(null);
   const [menuPrompt, setMenuPrompt] = useState(false);
   const [query, setQuery] = useState("");
+  // the product the customer just jumped to with the letter list (outlined for a moment)
+  const [jumpedTo, setJumpedTo] = useState<string | null>(null);
   const shopRef = useRef<HTMLElement>(null);
 
   const available = useMemo(() => menu.filter((m) => m.is_available), [menu]);
@@ -152,13 +141,54 @@ function Home() {
       const items = available.filter((m) => m.category === name);
       const photo =
         categoryInfo.find((c) => c.name === name)?.image_url ??
-        items.find((m) => m.image_url)?.image_url ??
+        items.map(coverImage).find(Boolean) ??
         null;
       return { name, items, photo };
     });
   }, [available, categoryInfo]);
 
   const activeCategory = categories.find((c) => c.name === cat) ?? null;
+  // Products inside a category are listed alphabetically.
+  const categoryItems = useMemo(
+    () => (activeCategory ? sortByName(activeCategory.items) : []),
+    [activeCategory],
+  );
+  const categoryLetters = useMemo(
+    () => [...new Set(categoryItems.map((m) => letterOf(m.name)))],
+    [categoryItems],
+  );
+
+  // Letter list → scroll to the first product that starts with the chosen letter.
+  function jumpToLetter(letter: string) {
+    const target = categoryItems.find((m) => letterOf(m.name) === letter);
+    if (!target) return;
+    document
+      .getElementById(`product-${target.id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    flash(setJumpedTo, target.id, 1800);
+  }
+
+  // Fetch the light copies of every category and product photo in the background, in the
+  // order they're shown, so a category's photos are already on the phone when it's opened
+  // and appear at once. Skipped for customers who asked their phone to save data.
+  useEffect(() => {
+    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+      ?.saveData;
+    if (saveData) return;
+    const urls: string[] = [];
+    for (const c of categories) urls.push(thumbUrl(c.photo) ?? "");
+    for (const c of categories)
+      for (const m of sortByName(c.items)) urls.push(thumbUrl(coverImage(m)) ?? "");
+    let stop = () => {};
+    // a moment's head start for the photos already on screen
+    const timer = window.setTimeout(() => {
+      stop = preloadAll(urls.filter(Boolean));
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      stop();
+    };
+  }, [categories]);
 
   const searchIndex = useMemo(() => buildSearchIndex(available), [available]);
   const results = useMemo(
@@ -243,7 +273,7 @@ function Home() {
         id: item.id,
         name: item.name,
         price: effectivePrice(item),
-        image_url: item.image_url,
+        image_url: coverImage(item),
         ...(item.sale_price !== null ? { regular_price: Number(item.price) } : {}),
       },
       qty,
@@ -266,7 +296,7 @@ function Home() {
         id: item.id,
         name: item.name,
         price: discount ? discount.price : effectivePrice(item),
-        image_url: valueImage ?? item.image_url,
+        image_url: valueImage ?? coverImage(item),
         options,
         ...(discount ? { discount_code: discount.code } : {}),
         ...(discount || item.sale_price !== null ? { regular_price: Number(item.price) } : {}),
@@ -309,25 +339,29 @@ function Home() {
         {items.map((item) => {
           const soldOut = item.stock === 0;
           const firstVariable = item.variables[0];
-          const cardImages = [
-            item.image_url,
-            ...item.extra_images,
-            ...item.variables.flatMap((v) => v.values.map((x) => x.image_url)),
-          ].filter((u): u is string => typeof u === "string" && u.trim() !== "");
+          const cover = coverImage(item);
           return (
-            <li key={item.id} className={soldOut ? "opacity-60" : ""}>
+            <li
+              key={item.id}
+              id={`product-${item.id}`}
+              className={`scroll-mt-48 rounded-2xl transition-shadow duration-300 ${
+                soldOut ? "opacity-60" : ""
+              } ${jumpedTo === item.id ? "ring-2 ring-primary ring-offset-4 ring-offset-background" : ""}`}
+            >
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setSheetItem(item)}
                   aria-label={item.name}
-                  className="block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-muted"
+                  className="photo-slot block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-muted"
                 >
-                  <CardImage
-                    key={item.id}
-                    urls={cardImages}
-                    className={`h-full w-full object-cover ${soldOut ? "grayscale" : ""}`}
-                  />
+                  {cover && (
+                    <Photo
+                      thumb
+                      src={cover}
+                      className={`h-full w-full object-cover ${soldOut ? "grayscale" : ""}`}
+                    />
+                  )}
                 </button>
                 <div className="pointer-events-none absolute top-2 right-2 flex flex-col items-start gap-1">
                   {soldOut && (
@@ -467,7 +501,9 @@ function Home() {
         )}
         <div className="mx-auto grid max-w-5xl gap-12 px-5 pt-12 pb-16 md:grid-cols-[1.15fr_1fr] md:items-center md:pb-20">
           <div>
-            <p className="text-[15px] font-medium text-white/90">{story.hero_title}</p>
+            {story.hero_title && (
+              <p className="text-[15px] font-medium text-white/90">{story.hero_title}</p>
+            )}
             {/* set like the logo: heavy Arabic name, spaced Latin name under it */}
             <h1 className="mt-3">
               <span className="font-logo block text-[clamp(3.25rem,19vw,5.25rem)] leading-[1.15] font-semibold md:text-[8vw] lg:text-[6.25rem]">
@@ -480,9 +516,11 @@ function Home() {
                 VENICE
               </span>
             </h1>
-            <p className="mt-6 max-w-md text-[17px] leading-8 text-white/90">
-              {story.hero_subtitle}
-            </p>
+            {story.hero_subtitle && (
+              <p className="mt-6 max-w-md text-[17px] leading-8 text-white/90">
+                {story.hero_subtitle}
+              </p>
+            )}
             <button
               type="button"
               onClick={() => showCategory()}
@@ -514,29 +552,40 @@ function Home() {
       <section id="menu" ref={shopRef} className="scroll-mt-14">
         <div className="sticky top-14 z-20 border-b border-border/70 bg-background/95 backdrop-blur-md">
           <div className="mx-auto max-w-5xl px-4 py-3">
-            <label className="relative block">
-              <span className="sr-only">ابحثي عن منتج</span>
-              <Search className="pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="search"
-                dir="auto"
-                enterKeyHint="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="ابحثي عن منتج، لون أو قسم / Search"
-                className="h-12 w-full rounded-full border border-border bg-card ps-11 pe-11 text-[16px] text-ink outline-none placeholder:text-muted-foreground focus:border-primary"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  aria-label="مسح البحث"
-                  className="absolute top-1/2 left-2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+            {/* The letter list sits here, in the bar that stays on screen, so another letter
+                can be picked from anywhere in a long category without scrolling back up. */}
+            <div className="flex items-center gap-2">
+              <label className="relative block min-w-0 flex-1">
+                <span className="sr-only">ابحثي عن منتج</span>
+                <Search className="pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  dir="auto"
+                  enterKeyHint="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    activeCategory && !results && categoryLetters.length > 1
+                      ? "ابحثي عن منتج / Search"
+                      : "ابحثي عن منتج، لون أو قسم / Search"
+                  }
+                  className="h-12 w-full rounded-full border border-border bg-card ps-11 pe-11 text-[16px] text-ink outline-none placeholder:text-muted-foreground focus:border-primary"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label="مسح البحث"
+                    className="absolute top-1/2 left-2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </label>
+              {activeCategory && !results && categoryLetters.length > 1 && (
+                <LetterPicker letters={categoryLetters} onPick={jumpToLetter} />
               )}
-            </label>
+            </div>
 
             {activeCategory && !results && (
               <div className="scrollbar-none -mx-4 mt-3 flex items-center gap-2 overflow-x-auto px-4">
@@ -580,12 +629,12 @@ function Home() {
 
           {results ? (
             results.length > 0 ? (
-              <>
+              <PhotoGroup key="search">
                 <p className="text-sm text-muted-foreground">
                   {arCount(results.length, ["نتيجة واحدة", "نتيجتان", "نتائج", "نتيجة"])}
                 </p>
                 {renderProductGrid(results, true)}
-              </>
+              </PhotoGroup>
             ) : (
               <div className="py-12 text-center">
                 <p className="text-lg text-ink">لا توجد نتائج لـ «{query.trim()}»</p>
@@ -602,12 +651,12 @@ function Home() {
               </div>
             )
           ) : activeCategory ? (
-            <>
+            <PhotoGroup key={`cat:${activeCategory.name}`}>
               <h2 className="text-2xl text-ink">{activeCategory.name}</h2>
-              {renderProductGrid(activeCategory.items)}
-            </>
+              {renderProductGrid(categoryItems)}
+            </PhotoGroup>
           ) : (
-            <>
+            <PhotoGroup key="categories">
               <h2 className="text-2xl text-ink">تسوّقي حسب القسم</h2>
               {categories.length === 0 ? (
                 <p className="py-12 text-center text-muted-foreground">لا توجد منتجات بعد</p>
@@ -621,14 +670,11 @@ function Home() {
                       className="group text-start"
                     >
                       <span className="block truncate text-base font-bold text-ink">{c.name}</span>
-                      <span className="mt-2 block aspect-square overflow-hidden rounded-2xl border border-border bg-muted">
+                      <span className="photo-slot mt-2 block aspect-square overflow-hidden rounded-2xl border border-border bg-muted">
                         {c.photo ? (
-                          <img
-                            src={c.photo}
-                            alt=""
-                            loading="lazy"
-                            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          />
+                          <span className="block h-full w-full transition-transform duration-500 group-hover:scale-105">
+                            <Photo thumb src={c.photo} className="h-full w-full object-cover" />
+                          </span>
                         ) : (
                           <span className="flex h-full items-center justify-center text-5xl font-extrabold text-primary/35">
                             {c.name.slice(0, 1)}
@@ -642,17 +688,27 @@ function Home() {
                   ))}
                 </div>
               )}
-            </>
+            </PhotoGroup>
           )}
         </div>
       </section>
 
-      {/* story */}
-      <section className="border-t border-border bg-secondary px-5 py-16 text-center">
-        <p className="text-sm font-bold text-primary">{story.story_label}</p>
-        <h2 className="mt-3 text-3xl text-ink">{story.story_title}</h2>
-        <p className="mx-auto mt-4 max-w-xl leading-8 text-muted-foreground">{story.story_text}</p>
-      </section>
+      {/* story — every line is optional; with all three empty the section isn't there at all */}
+      {(story.story_label || story.story_title || story.story_text) && (
+        <section className="border-t border-border bg-secondary px-5 py-16 text-center">
+          <div className="space-y-3">
+            {story.story_label && (
+              <p className="text-sm font-bold text-primary">{story.story_label}</p>
+            )}
+            {story.story_title && <h2 className="text-3xl text-ink">{story.story_title}</h2>}
+            {story.story_text && (
+              <p className="mx-auto max-w-xl pt-1 leading-8 text-muted-foreground">
+                {story.story_text}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* contact */}
       <footer className="bg-ink px-5 pt-14 pb-10 text-center text-white">
@@ -724,9 +780,9 @@ function Home() {
                     return (
                       <div key={l.key} className="flex items-center gap-3">
                         {l.image_url && (
-                          <img
+                          <Photo
+                            thumb
                             src={l.image_url}
-                            alt=""
                             className="h-14 w-14 shrink-0 rounded-2xl object-cover"
                           />
                         )}
