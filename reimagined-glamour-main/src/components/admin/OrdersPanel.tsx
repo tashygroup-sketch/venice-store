@@ -97,7 +97,21 @@ export function OrdersPanel({ phone }: { phone: string }) {
               {o.items.map((it, i) => (
                 <div key={i} className="flex justify-between py-0.5">
                   <span>
-                    {it.name} × {it.qty}
+                    {it.name}
+                    {/* the chosen colour / size, needed to prepare the order */}
+                    {it.options?.length ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        ({it.options.map((x) => `${x.name}: ${x.value}`).join("، ")})
+                      </span>
+                    ) : null}{" "}
+                    × {it.qty}
+                    {it.discount_code ? (
+                      <span className="text-xs text-accent-foreground">
+                        {" "}
+                        — كود {it.discount_code}
+                      </span>
+                    ) : null}
                   </span>
                   <span>{(it.price * it.qty).toFixed(2)} د.ل</span>
                 </div>
