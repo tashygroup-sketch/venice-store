@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, Plus, Search, ShoppingBag, X } from "lucide-react";
 import {
   coverImage,
-  effectivePrice,
   getCategories,
   getMenu,
   getStorySection,
@@ -24,6 +23,13 @@ import { preloadAll, thumbUrl } from "@/lib/photos";
 import { arCount } from "@/lib/utils";
 import { keepLayer, useCloseLayer, useLockScroll, withLayer } from "@/lib/back-layer";
 import { overStockValue, remainingForChoice } from "@/lib/stock";
+import {
+  codePriceFor,
+  payPrice,
+  regularPriceFor,
+  regularPriceRange,
+  salePriceFor,
+} from "@/lib/pricing";
 import { WHATSAPP_NUMBER } from "@/lib/whatsapp";
 
 const menuQuery = queryOptions({ queryKey: ["menu"], queryFn: () => getMenu() });
@@ -238,7 +244,7 @@ function Home() {
       if (!d || (d.ends_at && new Date(d.ends_at).getTime() <= Date.now())) {
         return "انتهى الخصم على هذا المنتج، احذفيه وأضيفيه من جديد";
       }
-    } else if (Math.abs(l.price - effectivePrice(product)) > 0.005) {
+    } else if (Math.abs(l.price - salePriceFor(product, l.options)) > 0.005) {
       return "تغيّر سعر هذا المنتج، احذفيه وأضيفيه من جديد";
     }
     return null;
@@ -272,7 +278,7 @@ function Home() {
       {
         id: item.id,
         name: item.name,
-        price: effectivePrice(item),
+        price: salePriceFor(item, []),
         image_url: coverImage(item),
         ...(item.sale_price !== null ? { regular_price: Number(item.price) } : {}),
       },
@@ -295,11 +301,14 @@ function Home() {
       {
         id: item.id,
         name: item.name,
-        price: discount ? discount.price : effectivePrice(item),
+        // the chosen value's own price when it has one (src/lib/pricing.ts)
+        price: discount ? codePriceFor(item, options, discount.price) : salePriceFor(item, options),
         image_url: valueImage ?? coverImage(item),
         options,
         ...(discount ? { discount_code: discount.code } : {}),
-        ...(discount || item.sale_price !== null ? { regular_price: Number(item.price) } : {}),
+        ...(discount || item.sale_price !== null
+          ? { regular_price: regularPriceFor(item, options) }
+          : {}),
       },
       qty,
     );
@@ -340,6 +349,9 @@ function Home() {
           const soldOut = item.stock === 0;
           const firstVariable = item.variables[0];
           const cover = coverImage(item);
+          // values with their own price: the card shows the lowest as "من …"
+          const range = regularPriceRange(item);
+          const fromPrice = payPrice(item, range.min);
           return (
             <li
               key={item.id}
@@ -436,12 +448,12 @@ function Home() {
                   <span
                     className={`text-[17px] font-extrabold ${item.sale_price !== null ? "text-primary" : "text-ink"}`}
                   >
-                    {formatPrice(effectivePrice(item))}{" "}
-                    <span className="text-xs font-bold">د.ل</span>
+                    {range.min !== range.max && <span className="text-xs font-bold">من </span>}
+                    {formatPrice(fromPrice)} <span className="text-xs font-bold">د.ل</span>
                   </span>
-                  {item.sale_price !== null && (
+                  {fromPrice < range.min && (
                     <span className="text-sm text-muted-foreground line-through">
-                      {formatPrice(item.price)}
+                      {formatPrice(range.min)}
                     </span>
                   )}
                 </span>
