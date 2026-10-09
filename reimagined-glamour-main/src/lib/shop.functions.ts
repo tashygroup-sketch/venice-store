@@ -4,13 +4,21 @@ import { imageSize } from "image-size";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { hasValueStock, overStockValue, parseStock, totalFromValues } from "@/lib/stock";
 import { LIBYAN_MOBILE, normalizeLibyanPhone } from "@/lib/phone";
+import { codePriceFor, parseValuePrice, salePriceFor } from "@/lib/pricing";
 
 export const WHATSAPP_NUMBER = "218923088051";
 
-// A product's own options, e.g. { name: "اللون", values: [{ label: "أحمر", image_url, stock }] }.
+// A product's own options, e.g. { name: "اللون", values: [{ label: "أحمر", image_url, stock, price }] }.
 // When a product has any, the customer must pick one value from each before ordering.
 // `stock` = pieces of that value left; null = not counted (unlimited). See src/lib/stock.ts.
-export type VariantValue = { label: string; image_url: string | null; stock: number | null };
+// `price` = this value's own price, which replaces the product's price when it's chosen;
+// null = the product's price. See src/lib/pricing.ts.
+export type VariantValue = {
+  label: string;
+  image_url: string | null;
+  stock: number | null;
+  price: number | null;
+};
 export type ProductVariant = { name: string; values: VariantValue[] };
 export type OrderOption = { name: string; value: string };
 
@@ -24,7 +32,13 @@ export function normalizeVariables(raw: unknown): ProductVariant[] {
     const values: VariantValue[] = Array.isArray(v?.values)
       ? v.values
           .map((x: unknown) => {
-            const val = x as { label?: unknown; image_url?: unknown; stock?: unknown };
+            const val = x as {
+              label?: unknown;
+              image_url?: unknown;
+              stock?: unknown;
+              price?: unknown;
+            };
+            const price = typeof val?.price === "number" ? parseValuePrice(val.price) : null;
             return {
               label: typeof val?.label === "string" ? val.label.trim() : "",
               image_url:
@@ -32,6 +46,7 @@ export function normalizeVariables(raw: unknown): ProductVariant[] {
                   ? val.image_url.trim()
                   : null,
               stock: typeof val?.stock === "number" ? parseStock(val.stock) : null,
+              price: price ?? null,
             };
           })
           .filter((x: VariantValue) => x.label)
@@ -64,7 +79,9 @@ function sanitizeVariables(input: unknown): ProductVariant[] {
         typeof val?.image_url === "string" && val.image_url.trim()
           ? val.image_url.trim().slice(0, 500)
           : null;
-      values.push({ label, image_url: image, stock: parseStock(val?.stock) });
+      const price = parseValuePrice(val?.price);
+      if (price === undefined) throw new Error(`سعر "${label}" غير صحيح`);
+      values.push({ label, image_url: image, stock: parseStock(val?.stock), price });
     }
     if (!name && values.length === 0) continue;
     if (!name) throw new Error("اكتبي اسم المتغير (مثل: اللون)");
@@ -528,12 +545,15 @@ export const createOrder = createServerFn({ method: "POST" })
         const photo = photoForChoice({ ...row, variables }, clean.options);
         if (photo) clean.image_url = photo;
 
-        // price: the discount price only with a valid, unexpired code; otherwise the regular one
-        let price = effectivePrice({
+        // price: the discount price only with a valid, unexpired code; otherwise the regular
+        // one — both for the chosen value when it has its own price (src/lib/pricing.ts)
+        const priced = {
           price: Number(row.price),
           sale_price:
             row.sale_price === null || row.sale_price === undefined ? null : Number(row.sale_price),
-        });
+          variables,
+        };
+        let price = salePriceFor(priced, clean.options);
         const typed = item.discount_code?.trim();
         if (typed) {
           const d = discounts.get(row.id);
@@ -545,7 +565,7 @@ export const createOrder = createServerFn({ method: "POST" })
           if (!isActive(d.ends_at)) {
             throw new Error(`انتهى الخصم على "${row.name}"، احذفيه من السلة وأضيفيه من جديد`);
           }
-          price = d.discount_price;
+          price = codePriceFor(priced, clean.options, d.discount_price);
           clean.discount_code = d.code;
         }
         if (Math.abs(price - clean.price) > 0.005) {
