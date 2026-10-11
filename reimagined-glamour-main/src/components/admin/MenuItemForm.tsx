@@ -8,7 +8,10 @@ import {
   type StockVariable,
 } from "@/lib/stock";
 import { parseValuePrice } from "@/lib/pricing";
-import { CropDialog, type CroppedImage } from "./CropDialog";
+import { limitConcurrency, MAX_PHOTOS_PER_PICK } from "@/lib/image";
+import { arCount } from "@/lib/utils";
+import { Photo } from "@/components/Photo";
+import { CropQueue, type CropBatch, type CroppedImage } from "./CropDialog";
 import { CategorySelect } from "./CategorySelect";
 
 export type MenuItemDraft = {
@@ -210,13 +213,16 @@ export function MenuItemForm({
   const [availableCategories, setAvailableCategories] = useState(categories);
   const [uploadingMain, setUploadingMain] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  // Photos waiting to be cropped, one after another (several can be picked at once).
-  const [cropQueue, setCropQueue] = useState<{ file: File; target: CropTarget }[]>([]);
-  const pendingCrop = cropQueue[0] ?? null;
+  // Photos picked and waiting for the crop screen, one after another (up to
+  // MAX_PHOTOS_PER_PICK in one pick; picking again adds more).
+  const [cropBatch, setCropBatch] = useState<CropBatch<CropTarget> | null>(null);
+  const [pickNote, setPickNote] = useState<string | null>(null);
   // True once the product has a cover photo (or one is on its way). The first photo picked
   // becomes the cover, whichever "add photo" button was used; the rest are extra photos.
   const coverTaken = useRef(Boolean(initial?.image_url));
-  // Uploads run one after another so the photos keep the order they were picked in.
+  // Uploads run 3 at a time; each photo is added after the one picked before it, so the photos
+  // keep the order they were picked in even when a later one finishes uploading first.
+  const uploadSlot = useRef(limitConcurrency(3));
   const uploadChain = useRef<Promise<void>>(Promise.resolve());
 
   // The display order is no longer a field: keep an item's place if it stays in its original
@@ -250,26 +256,40 @@ export function MenuItemForm({
 
   function pickFile(target: CropTarget) {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []);
+      const picked = Array.from(e.target.files ?? []);
       e.target.value = "";
-      if (files.length === 0) return;
-      // A shade photo is always a single photo; product photos can be several.
-      const chosen = typeof target === "object" ? files.slice(0, 1) : files;
-      setCropQueue((q) => [...q, ...chosen.map((file) => ({ file, target }))]);
+      if (picked.length === 0) return;
+      // A shade photo is always a single photo; product photos up to MAX_PHOTOS_PER_PICK.
+      const max = typeof target === "object" ? 1 : MAX_PHOTOS_PER_PICK;
+      const files = picked.slice(0, max);
+      setUploadError(null);
+      setPickNote(
+        picked.length > max && max > 1
+          ? `اخترتِ ${picked.length} صورة — تُضاف أول ${max} الآن، واختاري الباقي بعدها`
+          : null,
+      );
+      setCropBatch({ files, tag: target });
     };
   }
 
-  // The crop screen closes right away; the upload carries on in the background, so the next
-  // photo can be picked while this one is still uploading.
-  function handleCropped(image: CroppedImage) {
-    const target = pendingCrop?.target ?? "photo";
-    setCropQueue((q) => q.slice(1));
+  // Each photo starts uploading as soon as it's cropped, in the background, so the next one
+  // can be cropped (or more picked) meanwhile.
+  function handleCropped(image: CroppedImage, target: CropTarget) {
     setUploadError(null);
     if (typeof target === "object") void uploadValueImage(target.value, image);
     else if (!coverTaken.current) {
       coverTaken.current = true;
-      void uploadMain(image);
-    } else void uploadExtra(image);
+      uploadMain(image);
+    } else uploadExtra(image);
+  }
+
+  function finishBatch({ failed: unreadable }: { failed: number }) {
+    setCropBatch(null);
+    if (unreadable > 0) {
+      setUploadError(
+        `تعذّر فتح ${arCount(unreadable, ["صورة واحدة", "صورتين", "صور", "صورة"])}، جرّبي صيغة أخرى (JPG أو PNG)`,
+      );
+    }
   }
 
   function failed(err: unknown) {
@@ -278,9 +298,11 @@ export function MenuItemForm({
 
   function uploadMain(image: CroppedImage) {
     setUploadingMain(true);
+    const uploading = uploadSlot.current(() => onUploadImage(image));
+    uploading.catch(() => {}); // handled below, in order
     uploadChain.current = uploadChain.current.then(async () => {
       try {
-        const { url, ratio } = await onUploadImage(image);
+        const { url, ratio } = await uploading;
         setDraft((d) => ({ ...d, image_url: url, image_ratio: ratio }));
       } catch (err) {
         coverTaken.current = false;
@@ -293,9 +315,11 @@ export function MenuItemForm({
 
   function uploadExtra(image: CroppedImage) {
     setPendingExtras((n) => n + 1);
+    const uploading = uploadSlot.current(() => onUploadImage(image));
+    uploading.catch(() => {}); // handled below, in order
     uploadChain.current = uploadChain.current.then(async () => {
       try {
-        const { url, ratio } = await onUploadImage(image);
+        const { url, ratio } = await uploading;
         setDraft((d) => ({
           ...d,
           extra_images: [...d.extra_images, url],
@@ -328,7 +352,7 @@ export function MenuItemForm({
   async function uploadValueImage(valueUid: string, image: CroppedImage) {
     setUploadingValues((ids) => [...ids, valueUid]);
     try {
-      const { url } = await onUploadImage(image);
+      const { url } = await uploadSlot.current(() => onUploadImage(image));
       // by uid: lands on the right value even if rows were added/removed meanwhile (and is
       // simply dropped if that value was deleted)
       updateValue(valueUid, { image_url: url });
@@ -400,7 +424,7 @@ export function MenuItemForm({
         }
         onSubmit(draft);
       }}
-      className="space-y-4 rounded-3xl bg-card p-5 shadow-[var(--shadow-card)]"
+      className="min-w-0 space-y-4 rounded-3xl bg-card p-5 shadow-[var(--shadow-card)]"
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
@@ -874,9 +898,9 @@ export function MenuItemForm({
         <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1">
           {draft.image_url ? (
             <div className="relative h-24 w-[72px] shrink-0">
-              <img
+              <Photo
+                thumb
                 src={draft.image_url}
-                alt=""
                 className="h-full w-full rounded-xl border-2 border-primary object-cover"
               />
               <span className="pointer-events-none absolute right-1 bottom-1 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
@@ -898,7 +922,7 @@ export function MenuItemForm({
           )}
           {draft.extra_images.map((url, idx) => (
             <div key={`${url}-${idx}`} className="relative h-24 w-[72px] shrink-0">
-              <img src={url} alt="" className="h-full w-full rounded-xl object-cover" />
+              <Photo thumb src={url} className="h-full w-full rounded-xl object-cover" />
               <button
                 type="button"
                 onClick={() => removeExtraImage(idx)}
@@ -942,8 +966,12 @@ export function MenuItemForm({
           />
         </label>
         <p className="mt-1 text-xs text-muted-foreground">
-          يمكنك اختيار عدة صور، وأول صورة تصبح صورة الغلاف.
+          {draft.extra_images.length + (draft.image_url ? 1 : 0) > 0 &&
+            `${arCount(draft.extra_images.length + (draft.image_url ? 1 : 0), ["صورة واحدة", "صورتان", "صور", "صورة"])} — `}
+          يمكنك اختيار حتى {MAX_PHOTOS_PER_PICK} صورة في المرة الواحدة وإضافة المزيد بعدها، وأول
+          صورة تصبح صورة الغلاف.
         </p>
+        {pickNote && <p className="mt-1 text-xs font-medium text-accent-foreground">{pickNote}</p>}
         {uploadError && <p className="mt-1 text-sm text-destructive">{uploadError}</p>}
       </div>
 
@@ -965,11 +993,7 @@ export function MenuItemForm({
         </button>
       </div>
 
-      <CropDialog
-        file={pendingCrop?.file ?? null}
-        onCancel={() => setCropQueue([])}
-        onDone={handleCropped}
-      />
+      <CropQueue batch={cropBatch} onCropped={handleCropped} onFinish={finishBatch} />
     </form>
   );
 }
