@@ -62,13 +62,13 @@ function sanitizeVariables(input: unknown): ProductVariant[] {
   if (!Array.isArray(input)) return [];
   const out: ProductVariant[] = [];
   const names = new Set<string>();
-  for (const v of input.slice(0, 8)) {
+  for (const v of input.slice(0, 30)) {
     const name = String(v?.name ?? "")
       .trim()
       .slice(0, 40);
     const labels = new Set<string>();
     const values: VariantValue[] = [];
-    for (const val of Array.isArray(v?.values) ? v.values.slice(0, 40) : []) {
+    for (const val of Array.isArray(v?.values) ? v.values.slice(0, 300) : []) {
       const label = String(val?.label ?? "")
         .trim()
         .slice(0, 60);
@@ -303,9 +303,65 @@ const RESERVE_V2 = "reserve_stock_v2" as "reserve_stock";
 async function adminClient(phone: string) {
   const { isAdminPhone } = await import("@/lib/admin.server");
   if (!isAdminPhone(phone)) throw new Error("غير مصرح");
+  forgetShopCache();
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
 }
+
+// ---------- no limit on rows ----------
+//
+// Supabase sends at most 1000 rows per request. Lists that can grow without limit (products,
+// discount codes, ads) are read page after page, so a shop with 5,000 products shows all 5,000.
+const PAGE_ROWS = 1000;
+
+type PageResult = { data: unknown[] | null; error: { code?: string; message: string } | null };
+
+async function selectAll<T>(
+  page: (from: number, to: number) => PromiseLike<PageResult>,
+): Promise<{ data: T[]; error: null } | { data: null; error: NonNullable<PageResult["error"]> }> {
+  const rows: unknown[] = [];
+  for (let from = 0; ; from += PAGE_ROWS) {
+    const { data, error } = await page(from, from + PAGE_ROWS - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_ROWS) return { data: rows as T[], error: null };
+  }
+}
+
+// ---------- a short memory of what every customer sees (more customers at once) ----------
+//
+// Every visit used to read the products, the ads and the categories from the database again.
+// With many customers at the same moment that's thousands of identical reads. Now the server
+// remembers each answer for SHOP_CACHE_MS and gives the same answer to everyone who asks in
+// that time: one database read serves all of them. A change made in the control panel shows
+// on the site within that time (immediately in the control panel itself, which always reads
+// fresh). If the database doesn't answer, the last answer keeps the shop open for a while.
+const SHOP_CACHE_MS = 15_000;
+const SHOP_STALE_OK_MS = 10 * 60_000;
+// Only finished answers are kept (never a request still running): on Cloudflare one visit
+// must not wait on another visit's request.
+const shopCache = new Map<string, { value: unknown; at: number }>();
+
+async function remembered<T>(key: string, fresh: boolean, load: () => Promise<T>): Promise<T> {
+  const kept = shopCache.get(key);
+  if (!fresh && kept && Date.now() - kept.at < SHOP_CACHE_MS) return kept.value as T;
+  try {
+    const value = await load();
+    shopCache.set(key, { value, at: Date.now() });
+    return value;
+  } catch (err) {
+    if (kept && Date.now() - kept.at < SHOP_STALE_OK_MS) return kept.value as T;
+    throw err;
+  }
+}
+
+// Called on every control-panel action, so this server's memory never outlives a change.
+function forgetShopCache() {
+  shopCache.clear();
+}
+
+// `fresh` = skip the memory (the control panel always wants what's in the database now).
+const freshInput = (input: { fresh?: boolean } | undefined) => ({ fresh: input?.fresh === true });
 
 const MENU_COLUMN_SETS = [
   "id,name,description,price,image_url,image_ratio,extra_images,extra_image_ratios,category,sort_order,is_available,stock,variables,min_qty,sale_price",
@@ -322,27 +378,38 @@ const MENU_COLUMN_SETS = [
 async function activeDiscountEnds(): Promise<Map<string, string | null>> {
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin
-      .from("product_discounts")
-      .select("product_id,ends_at");
-    if (error) return new Map();
-    return new Map(
-      (data ?? []).filter((d) => isActive(d.ends_at)).map((d) => [d.product_id, d.ends_at]),
+    const { data, error } = await selectAll<{ product_id: string; ends_at: string | null }>(
+      (from, to) =>
+        supabaseAdmin
+          .from("product_discounts")
+          .select("product_id,ends_at")
+          .order("product_id")
+          .range(from, to),
     );
+    if (error) return new Map();
+    return new Map(data.filter((d) => isActive(d.ends_at)).map((d) => [d.product_id, d.ends_at]));
   } catch {
     return new Map();
   }
 }
 
-export const getMenu = createServerFn({ method: "GET" }).handler(async () => {
+export const getMenu = createServerFn({ method: "GET" })
+  .inputValidator(freshInput)
+  .handler(({ data: input }) => remembered("menu", input.fresh, loadMenu));
+
+async function loadMenu(): Promise<MenuItem[]> {
   const client = publicClient();
   const discountsPromise = activeDiscountEnds();
   for (const columns of MENU_COLUMN_SETS) {
-    const { data, error } = await client
-      .from("menu_items")
-      .select(columns)
-      .order("sort_order", { ascending: true });
-    if (isMissingColumn(error)) continue;
+    const { data, error } = await selectAll<unknown>((from, to) =>
+      client
+        .from("menu_items")
+        .select(columns)
+        .order("sort_order", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+    if (error && isMissingColumn(error)) continue;
     if (error) throw new Error(error.message);
     const discounts = await discountsPromise;
     return (
@@ -366,7 +433,7 @@ export const getMenu = createServerFn({ method: "GET" }).handler(async () => {
     })) as MenuItem[];
   }
   throw new Error("تعذّر تحميل المنيو");
-});
+}
 
 // Customer typed a code for one product. Returns the discounted price only on an exact match
 // that hasn't expired.
@@ -392,12 +459,16 @@ export const getDiscountsAdmin = createServerFn({ method: "POST" })
   .inputValidator((input: { phone: string }) => input)
   .handler(async ({ data }) => {
     const db = await adminClient(data.phone);
-    const { data: rows, error } = await db
-      .from("product_discounts")
-      .select("product_id,code,discount_price,ends_at");
-    if (isMissingColumn(error)) return [] as AdminDiscount[];
+    const { data: rows, error } = await selectAll<AdminDiscount>((from, to) =>
+      db
+        .from("product_discounts")
+        .select("product_id,code,discount_price,ends_at")
+        .order("product_id")
+        .range(from, to),
+    );
+    if (error && isMissingColumn(error)) return [] as AdminDiscount[];
     if (error) throw new Error(error.message);
-    return (rows ?? []).map((r) => ({ ...r, discount_price: Number(r.discount_price) }));
+    return rows.map((r) => ({ ...r, discount_price: Number(r.discount_price) }));
   });
 
 export const createOrder = createServerFn({ method: "POST" })
@@ -1255,14 +1326,22 @@ async function loadSettings(client: ReturnType<typeof publicClient>) {
   return { error: null, data: null };
 }
 
-export const getStorySection = createServerFn({ method: "GET" }).handler(async () => {
+export const getStorySection = createServerFn({ method: "GET" })
+  .inputValidator(freshInput)
+  .handler(({ data: input }) => remembered("story", input.fresh, loadStorySection));
+
+async function loadStorySection() {
   const client = publicClient();
   const [settings, promos] = await Promise.all([
     loadSettings(client),
-    client
-      .from("promotions")
-      .select("id,image_url,ratio,sort_order")
-      .order("sort_order", { ascending: true }),
+    selectAll<Promotion>((from, to) =>
+      client
+        .from("promotions")
+        .select("id,image_url,ratio,sort_order")
+        .order("sort_order", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
   ]);
   if (settings.error) throw new Error(settings.error.message);
   if (promos.error) throw new Error(promos.error.message);
@@ -1274,9 +1353,9 @@ export const getStorySection = createServerFn({ method: "GET" }).handler(async (
     // null = never edited (built-in wording); "" = the owner cleared it, so nothing is shown
     hero_title: settings.data?.hero_title ?? DEFAULT_HERO.hero_title,
     hero_subtitle: settings.data?.hero_subtitle ?? DEFAULT_HERO.hero_subtitle,
-    images: (promos.data ?? []) as Promotion[],
+    images: promos.data ?? [],
   };
-});
+}
 
 export const saveStorySettings = createServerFn({ method: "POST" })
   .inputValidator(
@@ -1350,17 +1429,25 @@ export const saveHeroImage = createServerFn({ method: "POST" })
 
 export type CategoryInfo = { name: string; image_url: string | null; sort_order: number };
 
-export const getCategories = createServerFn({ method: "GET" }).handler(async () => {
+export const getCategories = createServerFn({ method: "GET" })
+  .inputValidator(freshInput)
+  .handler(({ data: input }) => remembered("categories", input.fresh, loadCategories));
+
+async function loadCategories(): Promise<CategoryInfo[]> {
   const client = publicClient();
-  const { data, error } = await client
-    .from("categories")
-    .select("name,image_url,sort_order")
-    .order("sort_order", { ascending: true });
+  const { data, error } = await selectAll<CategoryInfo>((from, to) =>
+    client
+      .from("categories")
+      .select("name,image_url,sort_order")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true })
+      .range(from, to),
+  );
   // Table not created yet (migration not run): the site still works, just without photos.
-  if (isMissingColumn(error)) return [] as CategoryInfo[];
+  if (error && isMissingColumn(error)) return [];
   if (error) throw new Error(error.message);
-  return (data ?? []) as CategoryInfo[];
-});
+  return data;
+}
 
 export const saveCategoryImage = createServerFn({ method: "POST" })
   .inputValidator((input: { phone: string; name: string; image_url: string | null }) => {
