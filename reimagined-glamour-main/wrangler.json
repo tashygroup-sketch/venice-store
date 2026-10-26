@@ -1,0 +1,15 @@
+{
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "venice-db",
+      "database_id": "aa4e53c2-e4fb-461a-9c51-871dce003254"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "PHOTOS",
+      "id": "f73d831f4e244644a31773c9c19ac396"
+    }
+  ]
+}
