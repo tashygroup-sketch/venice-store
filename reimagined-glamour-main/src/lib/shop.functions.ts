@@ -1,7 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createClient } from "@supabase/supabase-js";
 import { imageSize } from "image-size";
-import type { Database, Json } from "@/integrations/supabase/types";
 import { hasValueStock, overStockValue, parseStock, totalFromValues } from "@/lib/stock";
 import { LIBYAN_MOBILE, normalizeLibyanPhone } from "@/lib/phone";
 import { codePriceFor, parseValuePrice, salePriceFor } from "@/lib/pricing";
@@ -262,38 +260,14 @@ export const ORDER_STATUSES = ["جديد", "قيد التحضير", "جاهز ل
 export const DELIVERED = "تم التسليم";
 const NEW_ORDER = "جديد";
 
-// A value pasted into Cloudflare can carry quotes copied from .env, spaces or a line break;
-// any of these makes Supabase answer "Invalid API key". Strip them.
-function cleanEnv(value: string | undefined): string | undefined {
-  const v = value
-    ?.trim()
-    .replace(/^["']|["']$/g, "")
-    .trim();
-  return v || undefined;
+// The shop's storage on Cloudflare (D1 for the data, KV for the photos) — see
+// src/lib/store.server.ts. It answers like the Supabase client this file was written for.
+async function serverStore() {
+  const { getStore } = await import("@/lib/store.server");
+  return getStore();
 }
-
-// The storefront's read-only client. Uses the public URL and key baked in at build time from
-// .env first (they ship to every browser anyway), and Cloudflare's runtime values only as a
-// fallback, so a mistyped or wiped Cloudflare variable can't take the shop down.
-function publicClient() {
-  const key =
-    cleanEnv(import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"]) ??
-    cleanEnv(process.env["SUPABASE_PUBLISHABLE_KEY"])!;
-  const url =
-    cleanEnv(import.meta.env["VITE_SUPABASE_URL"]) ?? cleanEnv(process.env["SUPABASE_URL"])!;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      fetch: (input, init) => {
-        const h = new Headers(init?.headers);
-        if (key.startsWith("sb_") && h.get("Authorization") === `Bearer ${key}`)
-          h.delete("Authorization");
-        h.set("apikey", key);
-        return fetch(input, { ...init, headers: h });
-      },
-    },
-  });
-}
+// What used to be the public (read-only) client: on Cloudflare it's the same store.
+const publicClient = serverStore;
 
 // Newer stock function (supabase/migrations/20260928190000_value_stock.sql): same job as
 // reserve_stock, plus each chosen value's own quantity. Typed as the old name because the
@@ -304,8 +278,7 @@ async function adminClient(phone: string) {
   const { isAdminPhone } = await import("@/lib/admin.server");
   if (!isAdminPhone(phone)) throw new Error("غير مصرح");
   forgetShopCache();
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
+  return serverStore();
 }
 
 // ---------- no limit on rows ----------
@@ -377,7 +350,7 @@ const MENU_COLUMN_SETS = [
 // key missing) just means "no discounts"; it must never take the menu down.
 async function activeDiscountEnds(): Promise<Map<string, string | null>> {
   try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const supabaseAdmin = await serverStore();
     const { data, error } = await selectAll<{ product_id: string; ends_at: string | null }>(
       (from, to) =>
         supabaseAdmin
@@ -398,7 +371,7 @@ export const getMenu = createServerFn({ method: "GET" })
   .handler(({ data: input }) => remembered("menu", input.fresh, loadMenu));
 
 async function loadMenu(): Promise<MenuItem[]> {
-  const client = publicClient();
+  const client = await publicClient();
   const discountsPromise = activeDiscountEnds();
   for (const columns of MENU_COLUMN_SETS) {
     const { data, error } = await selectAll<unknown>((from, to) =>
@@ -442,7 +415,7 @@ export const checkDiscountCode = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const code = normalizeCode(data.code);
     if (!code || !data.id) return { ok: false as const, reason: "invalid" as const };
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const supabaseAdmin = await serverStore();
     const { data: row } = await supabaseAdmin
       .from("product_discounts")
       .select("code,discount_price,ends_at")
@@ -511,7 +484,7 @@ export const createOrder = createServerFn({ method: "POST" })
       throw new Error("اختر صنفًا واحدًا على الأقل من المنيو");
     }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const supabaseAdmin = await serverStore();
 
     // Everything the customer's browser sent is re-checked against the database here, before
     // the order is saved: chosen options, minimum quantity, discount codes, and the price of
@@ -677,7 +650,7 @@ export const createOrder = createServerFn({ method: "POST" })
       for (const clean of cleanItems) if (clean.id) clean.stock = "pending";
     }
 
-    const payload: Database["public"]["Tables"]["orders"]["Insert"] = {
+    const payload = {
       customer_name: name.slice(0, 120),
       phone: phone.slice(0, 40),
       address: address.slice(0, 300),
@@ -724,7 +697,7 @@ export const getOrderPhotos = createServerFn({ method: "GET" })
     return input;
   })
   .handler(async ({ data }): Promise<OrderPhotos | null> => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const supabaseAdmin = await serverStore();
     const { data: row, error } = await supabaseAdmin
       .from("orders")
       .select("items,total,created_at")
@@ -766,17 +739,24 @@ export const getOrderPhotos = createServerFn({ method: "GET" })
       };
     });
 
-    // WhatsApp only shows a preview for a small enough photo: use the light copy when it exists.
+    // WhatsApp only shows a preview for a small enough photo: use the light copy when it
+    // exists. Its address must be complete (https://…), not just /photos/….
     const first = out.find((i) => i.image_url)?.image_url ?? null;
     let preview = first;
     const name = first ? ownPhotoName(first) : null;
     if (name) {
-      const light = `${photoPrefix()}thumbs/${name}`;
       try {
-        const res = await fetch(light, { method: "HEAD" });
-        if (res.ok) preview = light;
+        if (await hasStoredPhoto(`thumbs/${name}`)) preview = `${PHOTO_PREFIX}thumbs/${name}`;
       } catch {
         // keep the full photo
+      }
+    }
+    if (preview?.startsWith("/")) {
+      try {
+        const { getRequestUrl } = await import("@tanstack/react-start/server");
+        preview = new URL(preview, getRequestUrl()).toString();
+      } catch {
+        // leave it relative
       }
     }
     return {
@@ -885,10 +865,7 @@ async function giveBackStock(
     } else {
       continue; // not counted: nothing was taken
     }
-    const { error } = await db
-      .from("menu_items")
-      .update(update as Database["public"]["Tables"]["menu_items"]["Update"])
-      .eq("id", row.id);
+    const { error } = await db.from("menu_items").update(update).eq("id", row.id);
     if (error) failed.push(row.name);
   }
   return failed;
@@ -921,7 +898,7 @@ export const setOrderDelivered = createServerFn({ method: "POST" })
     const claim = async (status: string, next: OrderItem[], from: string) => {
       const { data: rows, error: claimError } = await db
         .from("orders")
-        .update({ status, items: next as unknown as Json })
+        .update({ status, items: next })
         .eq("id", data.id)
         .eq("status", from)
         .select("id");
@@ -985,6 +962,16 @@ export const setOrderDelivered = createServerFn({ method: "POST" })
     throw new Error(stockError.message);
   });
 
+// The control panel calls this while it's open: copies the next few photos still in the old
+// Supabase storage into Cloudflare, and says how far it has got (src/lib/photo-move.server.ts).
+export const copyOldPhotos = createServerFn({ method: "POST" })
+  .inputValidator((input: { phone: string }) => input)
+  .handler(async ({ data }) => {
+    await adminClient(data.phone);
+    const { copyOldPhotosBatch } = await import("@/lib/photo-move.server");
+    return copyOldPhotosBatch(4);
+  });
+
 // The order form asks this as soon as 10 digits are in the phone field, so the control
 // panel's code opens the panel right away — no name, address or send button needed. Only
 // yes/no comes back; the code itself never reaches the browser.
@@ -996,6 +983,47 @@ export const checkAdminCode = createServerFn({ method: "POST" })
     const { isAdminPhone } = await import("@/lib/admin.server");
     return { admin: isAdminPhone(normalizeLibyanPhone(data.phone)) };
   });
+
+type StockSeen = {
+  stock: number | null;
+  values: { name: string; label: string; stock: number | null }[];
+};
+
+// Saving a product must never undo a sale. The form shows the quantities from when it was
+// opened; if an order was delivered (or undone) meanwhile, writing those numbers back would
+// put the sold pieces back. So a quantity the admin left as it was shown keeps the database's
+// current number, and only a quantity the admin actually changed is written.
+// Changes `variables` in place; returns the product quantity to save.
+async function keepUntouchedStock(
+  db: Awaited<ReturnType<typeof serverStore>>,
+  id: string,
+  stock: number | null | undefined,
+  variables: ProductVariant[],
+  seen: StockSeen | undefined,
+): Promise<{ stock: number | null | undefined }> {
+  if (!seen) return { stock };
+  const { data: row } = await db
+    .from("menu_items")
+    .select("stock,variables")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { stock };
+  const nowVars = (Array.isArray(row.variables) ? row.variables : []) as ProductVariant[];
+  const seenValue = (name: string, label: string) =>
+    seen.values.find((x) => x.name.trim() === name && x.label.trim() === label);
+  for (const v of variables) {
+    for (const x of v.values) {
+      const before = seenValue(v.name, x.label);
+      if (!before || (before.stock ?? null) !== (x.stock ?? null)) continue; // changed or new
+      const now = nowVars
+        .find((n) => n?.name === v.name)
+        ?.values?.find((n) => n?.label === x.label);
+      if (now) x.stock = typeof now.stock === "number" ? now.stock : null;
+    }
+  }
+  const same = (seen.stock ?? null) === (stock ?? null);
+  return { stock: same ? ((row.stock as number | null) ?? null) : stock };
+}
 
 export const saveMenuItem = createServerFn({ method: "POST" })
   .inputValidator(
@@ -1019,6 +1047,9 @@ export const saveMenuItem = createServerFn({ method: "POST" })
         sale_price?: number | null;
         // null/empty code = remove the product's discount
         discount?: { code: string; discount_price: number; ends_at: string | null } | null;
+        // The quantities the form showed when it was opened. A quantity the admin didn't
+        // touch is left as it is in the database now (see keepUntouchedStock).
+        stock_seen?: StockSeen;
       };
     }) => {
       if (!input.item?.name?.trim()) throw new Error("اسم الصنف مطلوب");
@@ -1028,6 +1059,9 @@ export const saveMenuItem = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const db = await adminClient(data.phone);
     const variables = sanitizeVariables(data.item.variables);
+    const kept = data.item.id
+      ? await keepUntouchedStock(db, data.item.id, data.item.stock, variables, data.item.stock_seen)
+      : { stock: data.item.stock };
     const valueStock = hasValueStock(variables);
     if (valueStock) {
       // Quantities per value are only safe once the database can deduct them on each order.
@@ -1072,9 +1106,9 @@ export const saveMenuItem = createServerFn({ method: "POST" })
       // With quantities per value, the total is calculated from them (never typed by hand).
       stock: valueStock
         ? totalFromValues(variables)
-        : data.item.stock === null || data.item.stock === undefined
+        : kept.stock === null || kept.stock === undefined
           ? null
-          : Math.max(0, Math.floor(Number(data.item.stock) || 0)),
+          : Math.max(0, Math.floor(Number(kept.stock) || 0)),
       variables,
       min_qty: Math.min(999, Math.max(1, Math.floor(Number(data.item.min_qty) || 1))),
       sale_price: parseSalePrice(data.item.sale_price, Number(data.item.price) || 0),
@@ -1181,21 +1215,36 @@ export const deleteMenuItem = createServerFn({ method: "POST" })
 // year: a returning customer sees the photos instantly, without downloading them again.
 const PHOTO_CACHE_SECONDS = "31536000";
 
-// Address prefix of the shop's own uploaded photos. Light copies live in its thumbs/ folder,
-// under the same file name (see src/lib/photos.ts).
-// The address is read the same way publicClient() reads it, so both always agree.
-function photoPrefix() {
-  const url =
-    cleanEnv(import.meta.env["VITE_SUPABASE_URL"]) ?? cleanEnv(process.env["SUPABASE_URL"])!;
-  return `${url.replace(/\/+$/, "")}/storage/v1/object/public/menu-photos/`;
-}
+// The shop's own photos are served from /photos/<name> (kept in Cloudflare KV; see
+// src/server.ts). Light copies live under /photos/thumbs/<same name> (src/lib/photos.ts).
+const PHOTO_PREFIX = "/photos/";
 
 // File name of one of the shop's own photos, or null for any other address.
 function ownPhotoName(url: string): string | null {
-  const prefix = photoPrefix();
-  if (typeof url !== "string" || !url.startsWith(prefix)) return null;
-  const name = url.slice(prefix.length);
+  if (typeof url !== "string" || !url.startsWith(PHOTO_PREFIX)) return null;
+  const name = url.slice(PHOTO_PREFIX.length);
   return /^[A-Za-z0-9._-]+$/.test(name) ? name : null;
+}
+
+// Whether a photo is in the shop's photo store (without downloading it).
+async function hasStoredPhoto(key: string) {
+  const { rawStore } = await import("@/lib/store.server");
+  const env = await rawStore();
+  const found = await env.PHOTOS.getWithMetadata(key, { type: "stream" });
+  await found.value?.cancel().catch(() => {});
+  return !!found.value;
+}
+
+// One photo's bytes from the shop's photo store, or null when it isn't there.
+async function storedPhoto(key: string) {
+  const { rawStore } = await import("@/lib/store.server");
+  const env = await rawStore();
+  const found = await env.PHOTOS.getWithMetadata<{ contentType?: string }>(key, {
+    type: "stream",
+  });
+  if (!found.value) return null;
+  const bytes = new Uint8Array(await new Response(found.value).arrayBuffer());
+  return { bytes, contentType: found.metadata?.contentType || "image/jpeg" };
 }
 
 export const uploadMenuImage = createServerFn({ method: "POST" })
@@ -1274,15 +1323,15 @@ export const fetchPhotoForThumb = createServerFn({ method: "POST" })
   .inputValidator((input: { phone: string; url: string }) => input)
   .handler(async ({ data }) => {
     await adminClient(data.phone);
-    if (!ownPhotoName(data.url)) throw new Error("ليست من صور المتجر");
-    const res = await fetch(data.url);
-    if (!res.ok) return { ok: false as const, status: res.status };
-    const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.byteLength > 8 * 1024 * 1024) return { ok: false as const, status: 413 };
+    const name = ownPhotoName(data.url);
+    if (!name) throw new Error("ليست من صور المتجر");
+    const photo = await storedPhoto(name);
+    if (!photo) return { ok: false as const, status: 404 };
+    if (photo.bytes.byteLength > 8 * 1024 * 1024) return { ok: false as const, status: 413 };
     return {
       ok: true as const,
-      base64: bytes.toString("base64"),
-      contentType: res.headers.get("content-type") || "image/jpeg",
+      base64: Buffer.from(photo.bytes).toString("base64"),
+      contentType: photo.contentType,
     };
   });
 
@@ -1317,7 +1366,7 @@ const SETTINGS_COLUMN_SETS = [
   "story_label,story_title,story_text",
 ];
 
-async function loadSettings(client: ReturnType<typeof publicClient>) {
+async function loadSettings(client: Awaited<ReturnType<typeof publicClient>>) {
   for (const columns of SETTINGS_COLUMN_SETS) {
     const res = await client.from("site_settings").select(columns).eq("id", 1).maybeSingle();
     if (isMissingColumn(res.error)) continue;
@@ -1331,7 +1380,7 @@ export const getStorySection = createServerFn({ method: "GET" })
   .handler(({ data: input }) => remembered("story", input.fresh, loadStorySection));
 
 async function loadStorySection() {
-  const client = publicClient();
+  const client = await publicClient();
   const [settings, promos] = await Promise.all([
     loadSettings(client),
     selectAll<Promotion>((from, to) =>
@@ -1434,7 +1483,7 @@ export const getCategories = createServerFn({ method: "GET" })
   .handler(({ data: input }) => remembered("categories", input.fresh, loadCategories));
 
 async function loadCategories(): Promise<CategoryInfo[]> {
-  const client = publicClient();
+  const client = await publicClient();
   const { data, error } = await selectAll<CategoryInfo>((from, to) =>
     client
       .from("categories")
