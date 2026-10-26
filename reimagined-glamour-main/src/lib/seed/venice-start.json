@@ -1,1 +1,180 @@
-
+{
+ "oldPhotoBase": "https://omcnibgjitqvzkbsqwvr.supabase.co/storage/v1/object/public/menu-photos/",
+ "products": [
+  {
+   "id": "11c81632-59e2-403a-b7b7-976c6267bffe",
+   "name": "عطر رجالي",
+   "description": "عطر خشبي منعش مناسب للاستخدام اليومي",
+   "price": 55.0,
+   "image_url": "/photos/86623a81-67b4-4b00-912a-a0c1153ba4b5.jpg",
+   "image_ratio": 1.3333333333333333,
+   "extra_images": "[]",
+   "extra_image_ratios": "[]",
+   "category": "عطور",
+   "sort_order": 2,
+   "is_available": 1,
+   "stock": null,
+   "variables": "[{\"name\": \"الوان\", \"values\": [{\"label\": \"ازرق\", \"price\": null, \"stock\": null, \"image_url\": \"/photos/e5efccca-c310-4509-8578-e9477e37997e.jpg\"}, {\"label\": \"احمر\", \"price\": null, \"stock\": null, \"image_url\": \"/photos/5cd36c9f-5944-45da-a0ff-5088fc61604e.jpg\"}]}]",
+   "min_qty": 1,
+   "sale_price": null,
+   "created_at": "2026-10-01T12:27:10.411Z",
+   "updated_at": "2026-10-10T14:41:25.612Z"
+  },
+  {
+   "id": "13c4fd3a-5b16-4373-9c24-ae13b1419bee",
+   "name": "روج",
+   "description": "هفؤخغؤخغر",
+   "price": 9576.0,
+   "image_url": "/photos/bed9a920-d1f0-4160-9902-575fff97ea3e.jpg",
+   "image_ratio": 1.3333333333333333,
+   "extra_images": "[\"/photos/75edf513-17fb-4f27-88fe-c9995f53b092.jpg\"]",
+   "extra_image_ratios": "[1.3333333333333333]",
+   "category": "Makeup",
+   "sort_order": 1,
+   "is_available": 1,
+   "stock": 4,
+   "variables": "[{\"name\": \"الالوان\", \"values\": [{\"label\": \"احمر\", \"price\": null, \"stock\": 2, \"image_url\": \"/photos/e76f1b79-e2cd-48a5-9daf-063b525b6256.jpg\"}, {\"label\": \"وردي\", \"price\": null, \"stock\": 2, \"image_url\": \"/photos/754987be-e938-4397-ac37-6224b0e34f49.jpg\"}]}]",
+   "min_qty": 10,
+   "sale_price": 800.0,
+   "created_at": "2026-10-07T20:33:36.788Z",
+   "updated_at": "2026-10-11T13:19:57.914Z"
+  },
+  {
+   "id": "363fa633-dee0-412a-89f3-f214e9438ab5",
+   "name": "عطر نسائي",
+   "description": "عطر بنفحات زهرية وعنبرية ثابتة طوال اليوم",
+   "price": 60.0,
+   "image_url": "/photos/7736c3b7-04c5-4774-8c95-64d5e9cc34ac.jpg",
+   "image_ratio": 1.3333333333333333,
+   "extra_images": "[]",
+   "extra_image_ratios": "[]",
+   "category": "عطور",
+   "sort_order": 1,
+   "is_available": 1,
+   "stock": null,
+   "variables": "[]",
+   "min_qty": 1,
+   "sale_price": null,
+   "created_at": "2026-10-01T12:27:10.411Z",
+   "updated_at": "2026-10-01T13:48:37.153Z"
+  },
+  {
+   "id": "8fc1ec1b-790b-4461-b00d-4b2df816a142",
+   "name": "عطر",
+   "description": "تفؤهغيهغؤخغؤخغيخ٦",
+   "price": 150.0,
+   "image_url": "/photos/35e9f4af-4062-4238-b4dd-ae1a5cbe7a93.jpg",
+   "image_ratio": 1.3333333333333333,
+   "extra_images": "[\"/photos/d2193a02-7c43-4964-a87b-1263bcb37df5.jpg\"]",
+   "extra_image_ratios": "[1.3333333333333333]",
+   "category": "عطور نسائيه",
+   "sort_order": 1,
+   "is_available": 1,
+   "stock": null,
+   "variables": "[{\"name\": \"الاحجام\", \"values\": [{\"label\": \"كبير\", \"price\": 150, \"stock\": null, \"image_url\": \"/photos/e1a0b9e1-25f6-4ed4-afa5-559e39ac0b48.jpg\"}, {\"label\": \"صغير\", \"price\": 100, \"stock\": null, \"image_url\": \"/photos/c17f3309-7ae7-4e4e-9c00-e5a7dc1819e3.jpg\"}]}]",
+   "min_qty": 1,
+   "sale_price": 100.0,
+   "created_at": "2026-10-11T13:18:43.892Z",
+   "updated_at": "2026-10-11T13:21:36.395Z"
+  },
+  {
+   "id": "bac65d04-2f6f-4fe5-b0dc-d64bf0607df8",
+   "name": "باروكة ناعمة",
+   "description": "باروكة بقصة ناعمة وملمس قريب من الشعر الطبيعي",
+   "price": 150.0,
+   "image_url": null,
+   "image_ratio": null,
+   "extra_images": "[]",
+   "extra_image_ratios": "[]",
+   "category": "باروكات",
+   "sort_order": 3,
+   "is_available": 1,
+   "stock": null,
+   "variables": "[]",
+   "min_qty": 1,
+   "sale_price": null,
+   "created_at": "2026-10-01T12:27:10.411Z",
+   "updated_at": "2026-10-01T12:27:10.411Z"
+  },
+  {
+   "id": "bc2151f6-b12e-40de-8f47-01bc0297ccb3",
+   "name": "باروكات كارية لعند كتف ناعم",
+   "description": "الياف حرارية أصلية تستشور وتتملس وتنغسل وتنقص \nمملس طبيعي \nلون طبيعي \nخالية من اللمعه",
+   "price": 150.0,
+   "image_url": "/photos/682abd78-61a2-4137-9984-3135a2e09b06.jpg",
+   "image_ratio": 1.3333333333333333,
+   "extra_images": "[]",
+   "extra_image_ratios": "[]",
+   "category": "باروكات",
+   "sort_order": 5,
+   "is_available": 1,
+   "stock": null,
+   "variables": "[]",
+   "min_qty": 1,
+   "sale_price": null,
+   "created_at": "2026-10-10T17:58:59.804Z",
+   "updated_at": "2026-10-10T18:00:44.280Z"
+  },
+  {
+   "id": "d0fd31bd-77ca-4ba0-bc75-b3bdaf012329",
+   "name": "باروكة مموّجة",
+   "description": "باروكة بتموجات واسعة وبلون بني داكن",
+   "price": 130.0,
+   "image_url": null,
+   "image_ratio": null,
+   "extra_images": "[]",
+   "extra_image_ratios": "[]",
+   "category": "باروكات",
+   "sort_order": 4,
+   "is_available": 1,
+   "stock": null,
+   "variables": "[]",
+   "min_qty": 1,
+   "sale_price": null,
+   "created_at": "2026-10-01T12:27:10.411Z",
+   "updated_at": "2026-10-01T12:27:10.411Z"
+  }
+ ],
+ "categories": [
+  {
+   "name": "عطور",
+   "image_url": "/photos/5bda7acf-faf5-493b-94e0-d9eed86626c2.jpg",
+   "sort_order": 0
+  },
+  {
+   "name": "عطور نسائيه",
+   "image_url": "/photos/9a889c10-93b3-4cf0-8111-aa3f5cede961.jpg",
+   "sort_order": 0
+  }
+ ],
+ "promotions": [
+  {
+   "id": "9f757ee1-fda9-45d4-b4e2-51d43b3cbee8",
+   "image_url": "/photos/0177da7a-510d-4d2a-98f7-45a08f891180.jpg",
+   "sort_order": 1,
+   "ratio": 1.3333333333333333
+  },
+  {
+   "id": "f8603fbe-4190-44fe-9051-24679faade74",
+   "image_url": "/photos/ebd9c277-7b62-472d-9815-81cf44227ccd.jpg",
+   "sort_order": 0,
+   "ratio": 1.3333333333333333
+  }
+ ],
+ "discounts": [
+  {
+   "product_id": "13c4fd3a-5b16-4373-9c24-ae13b1419bee",
+   "code": "Tasha",
+   "discount_price": 100.0,
+   "ends_at": "2026-10-08T21:32:00.000Z"
+  }
+ ],
+ "settings": {
+  "story_label": "قصتنا",
+  "story_title": "لمسة فينيسيا في كل تفصيلة",
+  "story_text": "من شغفنا بالجمال إلى وجهتكِ المفضلة في بنغازي، نختار لكِ أفضل العطور ومواد الزينة والباروكات لتشعري بالثقة والتألق كل يوم.",
+  "hero_image_url": "/photos/4ea98353-2ac9-4111-8ead-901bb3206248.jpg",
+  "hero_title": null,
+  "hero_subtitle": null
+ }
+}

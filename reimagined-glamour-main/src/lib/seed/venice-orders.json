@@ -1,0 +1,96 @@
+{
+ "orders": [
+  {
+   "id": "0501acd5-a2f0-49da-b8a9-410db8b7401d",
+   "customer_name": "علي",
+   "phone": "0916746050",
+   "address": "بنغازي بوعطني",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"363fa633-dee0-412a-89f3-f214e9438ab5\",\"qty\":1,\"name\":\"عطر نسائي\",\"price\":60,\"stock\":\"pending\",\"image_url\":\"/photos/7736c3b7-04c5-4774-8c95-64d5e9cc34ac.jpg\"}]",
+   "total": 60.0,
+   "status": "جديد",
+   "created_at": "2026-10-10T02:05:24.507Z"
+  },
+  {
+   "id": "0d849e08-291f-4788-8523-cadc08d2ffb8",
+   "customer_name": "Dfh",
+   "phone": "0935455555",
+   "address": "Dy",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"11c81632-59e2-403a-b7b7-976c6267bffe\",\"qty\":1,\"name\":\"عطر رجالي\",\"price\":55,\"image_url\":\"/photos/86623a81-67b4-4b00-912a-a0c1153ba4b5.jpg\"}]",
+   "total": 55.0,
+   "status": "جديد",
+   "created_at": "2026-10-08T20:55:22.577Z"
+  },
+  {
+   "id": "17ca6880-27f8-4cbb-a5aa-a95447ed9cdf",
+   "customer_name": "علي",
+   "phone": "0916746050",
+   "address": "بنغازي بوعطني",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"13c4fd3a-5b16-4373-9c24-ae13b1419bee\",\"qty\":10,\"name\":\"روج\",\"price\":800,\"options\":[{\"name\":\"الالوان\",\"value\":\"احمر\"}]}]",
+   "total": 8000.0,
+   "status": "جديد",
+   "created_at": "2026-10-08T15:01:06.968Z"
+  },
+  {
+   "id": "494443b3-15a0-487c-902c-9e0fc4a6e23d",
+   "customer_name": "Dghh",
+   "phone": "0935875658",
+   "address": "Xfh",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"363fa633-dee0-412a-89f3-f214e9438ab5\",\"qty\":1,\"name\":\"عطر نسائي\",\"price\":60}]",
+   "total": 60.0,
+   "status": "جديد",
+   "created_at": "2026-10-07T20:50:06.663Z"
+  },
+  {
+   "id": "60f22200-89b4-4d4a-aa1f-ed1677c44628",
+   "customer_name": "علي",
+   "phone": "0916746050",
+   "address": "بنغازي بوعطني",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"bac65d04-2f6f-4fe5-b0dc-d64bf0607df8\",\"qty\":2,\"name\":\"باروكة ناعمة\",\"price\":150}]",
+   "total": 300.0,
+   "status": "جديد",
+   "created_at": "2026-10-06T20:49:04.727Z"
+  },
+  {
+   "id": "8e4e1129-e54f-4b1c-9643-b2d1a0cbe643",
+   "customer_name": "Dgh",
+   "phone": "0935542354",
+   "address": "Xgh",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"13c4fd3a-5b16-4373-9c24-ae13b1419bee\",\"qty\":10,\"name\":\"روج\",\"price\":100,\"options\":[{\"name\":\"الالوان\",\"value\":\"وردي\"}],\"discount_code\":\"Tasha\"},{\"id\":\"11c81632-59e2-403a-b7b7-976c6267bffe\",\"qty\":1,\"name\":\"عطر رجالي\",\"price\":55}]",
+   "total": 1055.0,
+   "status": "جديد",
+   "created_at": "2026-10-07T20:51:03.102Z"
+  },
+  {
+   "id": "cddcb279-bd0e-4698-b7f2-ea848c2e1ac4",
+   "customer_name": "ؤغتةة",
+   "phone": "0938455545",
+   "address": "بعختلي",
+   "delivery_date": null,
+   "notes": null,
+   "location_url": null,
+   "items": "[{\"id\":\"11c81632-59e2-403a-b7b7-976c6267bffe\",\"qty\":1,\"name\":\"عطر رجالي\",\"price\":55,\"stock\":\"pending\",\"options\":[{\"name\":\"الوان\",\"value\":\"احمر\"}],\"image_url\":\"/photos/5cd36c9f-5944-45da-a0ff-5088fc61604e.jpg\"}]",
+   "total": 55.0,
+   "status": "جديد",
+   "created_at": "2026-10-10T14:42:54.620Z"
+  }
+ ],
+ "discounts": []
+}
