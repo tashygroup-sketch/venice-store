@@ -58,7 +58,7 @@ export type ValueDraft = {
 };
 export type VariableDraft = { uid: string; name: string; values: ValueDraft[] };
 
-type CropTarget = "photo" | { value: string };
+type CropTarget = "main" | "extra" | { value: string };
 
 let uidCounter = 0;
 const newUid = () => `u${++uidCounter}`;
@@ -212,18 +212,16 @@ export function MenuItemForm({
   // Our own copy of the options, so a category created here shows as selected immediately.
   const [availableCategories, setAvailableCategories] = useState(categories);
   const [uploadingMain, setUploadingMain] = useState(false);
+  // true while a main photo is on its way (read inside uploads that finish later)
+  const mainOnItsWay = useRef(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  // Photos picked and waiting for the crop screen, one after another (up to
-  // MAX_PHOTOS_PER_PICK in one pick; picking again adds more).
+  // photos picked and waiting for the crop screen (up to MAX_PHOTOS_PER_PICK at once)
   const [cropBatch, setCropBatch] = useState<CropBatch<CropTarget> | null>(null);
   const [pickNote, setPickNote] = useState<string | null>(null);
-  // True once the product has a cover photo (or one is on its way). The first photo picked
-  // becomes the cover, whichever "add photo" button was used; the rest are extra photos.
-  const coverTaken = useRef(Boolean(initial?.image_url));
-  // Uploads run 3 at a time; each photo is added after the one picked before it, so the photos
-  // keep the order they were picked in even when a later one finishes uploading first.
+  // Uploads run 3 at a time; extra photos are added in the order they were picked, even
+  // when a later one finishes uploading first.
   const uploadSlot = useRef(limitConcurrency(3));
-  const uploadChain = useRef<Promise<void>>(Promise.resolve());
+  const extraOrder = useRef<Promise<void>>(Promise.resolve());
 
   // The display order is no longer a field: keep an item's place if it stays in its original
   // category, otherwise put it at the end of the category it's moved into.
@@ -254,12 +252,13 @@ export function MenuItemForm({
     });
   }
 
+  // Product photos: up to MAX_PHOTOS_PER_PICK in one pick (picking again adds more — there's
+  // no limit on how many a product has). A value (colour) has one photo.
   function pickFile(target: CropTarget) {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
       const picked = Array.from(e.target.files ?? []);
       e.target.value = "";
       if (picked.length === 0) return;
-      // A shade photo is always a single photo; product photos up to MAX_PHOTOS_PER_PICK.
       const max = typeof target === "object" ? 1 : MAX_PHOTOS_PER_PICK;
       const files = picked.slice(0, max);
       setUploadError(null);
@@ -273,14 +272,13 @@ export function MenuItemForm({
   }
 
   // Each photo starts uploading as soon as it's cropped, in the background, so the next one
-  // can be cropped (or more picked) meanwhile.
-  function handleCropped(image: CroppedImage, target: CropTarget) {
+  // can be cropped (or more picked) meanwhile. Picked from «الصورة الرئيسية»: the first one
+  // becomes the main photo and the others extra photos.
+  function handleCropped(image: CroppedImage, target: CropTarget, index: number) {
     setUploadError(null);
     if (typeof target === "object") void uploadValueImage(target.value, image);
-    else if (!coverTaken.current) {
-      coverTaken.current = true;
-      uploadMain(image);
-    } else uploadExtra(image);
+    else if (target === "main" && index === 0) void uploadMain(image);
+    else uploadExtra(image);
   }
 
   function finishBatch({ failed: unreadable }: { failed: number }) {
@@ -296,57 +294,46 @@ export function MenuItemForm({
     setUploadError(err instanceof Error ? err.message : "تعذّر رفع الصورة");
   }
 
-  function uploadMain(image: CroppedImage) {
+  async function uploadMain(image: CroppedImage) {
     setUploadingMain(true);
-    const uploading = uploadSlot.current(() => onUploadImage(image));
-    uploading.catch(() => {}); // handled below, in order
-    uploadChain.current = uploadChain.current.then(async () => {
-      try {
-        const { url, ratio } = await uploading;
-        setDraft((d) => ({ ...d, image_url: url, image_ratio: ratio }));
-      } catch (err) {
-        coverTaken.current = false;
-        failed(err);
-      } finally {
-        setUploadingMain(false);
-      }
-    });
+    mainOnItsWay.current = true;
+    try {
+      const { url, ratio } = await uploadSlot.current(() => onUploadImage(image));
+      setDraft((d) => ({ ...d, image_url: url, image_ratio: ratio }));
+    } catch (err) {
+      failed(err);
+    } finally {
+      mainOnItsWay.current = false;
+      setUploadingMain(false);
+    }
   }
 
   function uploadExtra(image: CroppedImage) {
     setPendingExtras((n) => n + 1);
     const uploading = uploadSlot.current(() => onUploadImage(image));
     uploading.catch(() => {}); // handled below, in order
-    uploadChain.current = uploadChain.current.then(async () => {
-      try {
-        const { url, ratio } = await uploading;
-        setDraft((d) => ({
-          ...d,
-          extra_images: [...d.extra_images, url],
-          extra_image_ratios: [...d.extra_image_ratios, ratio ?? 4 / 3],
-        }));
-      } catch (err) {
-        failed(err);
-      } finally {
-        setPendingExtras((n) => n - 1);
-      }
-    });
+    extraOrder.current = extraOrder.current.then(() => addExtra(uploading));
   }
 
-  // Removing the cover promotes the first extra photo to be the new cover.
-  function removeMainImage() {
-    coverTaken.current = draft.extra_images.length > 0;
-    setDraft((d) => {
-      const [next, ...rest] = d.extra_images;
-      const [nextRatio, ...restRatios] = d.extra_image_ratios;
-      return {
-        ...d,
-        image_url: next ?? "",
-        image_ratio: next ? (nextRatio ?? null) : null,
-        extra_images: rest,
-        extra_image_ratios: restRatios,
-      };
-    });
+  async function addExtra(uploading: Promise<{ url: string; ratio: number | null }>) {
+    try {
+      const { url, ratio } = await uploading;
+      setDraft((d) =>
+        // No main photo yet: the first photo added with «+ صورة» becomes the main one —
+        // it's the one shown on the product's card, so the card is never left empty.
+        !d.image_url && !mainOnItsWay.current
+          ? { ...d, image_url: url, image_ratio: ratio }
+          : {
+              ...d,
+              extra_images: [...d.extra_images, url],
+              extra_image_ratios: [...d.extra_image_ratios, ratio ?? 4 / 3],
+            },
+      );
+    } catch (err) {
+      failed(err);
+    } finally {
+      setPendingExtras((n) => n - 1);
+    }
   }
 
   async function uploadValueImage(valueUid: string, image: CroppedImage) {
@@ -903,17 +890,9 @@ export function MenuItemForm({
                 src={draft.image_url}
                 className="h-full w-full rounded-xl border-2 border-primary object-cover"
               />
-              <span className="pointer-events-none absolute right-1 bottom-1 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
-                الغلاف
+              <span className="absolute inset-x-0 bottom-0 rounded-b-xl bg-primary py-0.5 text-center text-[10px] font-bold text-primary-foreground">
+                الصورة الرئيسية
               </span>
-              <button
-                type="button"
-                onClick={removeMainImage}
-                className="absolute top-1 left-1 flex h-6 w-6 items-center justify-center rounded-full bg-ink/70 text-xs text-white"
-                aria-label="إزالة صورة الغلاف"
-              >
-                ✕
-              </button>
             </div>
           ) : (
             <div className="flex h-24 w-[72px] shrink-0 items-center justify-center rounded-xl border-2 border-primary/40 bg-muted text-center text-[11px] text-muted-foreground">
@@ -942,36 +921,40 @@ export function MenuItemForm({
             </div>
           ))}
           <label className="relative flex h-24 w-[72px] shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-primary/60 text-xs text-primary">
-            + صورة
+            + صور
             <input
               type="file"
               accept="image/*"
               multiple
               className="sr-only"
-              onChange={pickFile("photo")}
+              onChange={pickFile("extra")}
             />
           </label>
         </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {draft.extra_images.length + (draft.image_url ? 1 : 0) > 0 &&
+            `${arCount(draft.extra_images.length + (draft.image_url ? 1 : 0), ["صورة واحدة", "صورتان", "صور", "صورة"])} — `}
+          يمكنك اختيار حتى {MAX_PHOTOS_PER_PICK} صورة في المرة الواحدة، وإضافة المزيد بعدها
+        </p>
+        {pickNote && <p className="mt-1 text-xs font-medium text-accent-foreground">{pickNote}</p>}
 
         <label className="relative mt-3 inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-primary">
           <span className="rounded-full border border-primary px-3 py-1.5">
-            {uploadingMain ? "جارِ الرفع..." : "📷 اختيار صور من المعرض"}
+            {uploadingMain
+              ? "جارِ الرفع..."
+              : draft.image_url
+                ? "📷 تغيير الصورة الرئيسية"
+                : "📷 اختيار الصورة الرئيسية"}
           </span>
           <input
             type="file"
             accept="image/*"
             multiple
             className="sr-only"
-            onChange={pickFile("photo")}
+            onChange={pickFile("main")}
+            disabled={uploadingMain}
           />
         </label>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {draft.extra_images.length + (draft.image_url ? 1 : 0) > 0 &&
-            `${arCount(draft.extra_images.length + (draft.image_url ? 1 : 0), ["صورة واحدة", "صورتان", "صور", "صورة"])} — `}
-          يمكنك اختيار حتى {MAX_PHOTOS_PER_PICK} صورة في المرة الواحدة وإضافة المزيد بعدها، وأول
-          صورة تصبح صورة الغلاف.
-        </p>
-        {pickNote && <p className="mt-1 text-xs font-medium text-accent-foreground">{pickNote}</p>}
         {uploadError && <p className="mt-1 text-sm text-destructive">{uploadError}</p>}
       </div>
 
